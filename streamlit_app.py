@@ -6,6 +6,7 @@ import streamlit as st
 
 import db
 from bambu_parser import parse_bambu_file
+from pdf_generator import build_quote_pdf
 
 st.set_page_config(page_title="Cotizador de Impresión 3D", page_icon="🖨️", layout="wide")
 
@@ -327,10 +328,18 @@ with col_result:
     quote_text = build_quote_text(inp, r)
     st.text_area("Cotización generada", quote_text, height=180)
 
-    b1, b2 = st.columns(2)
+    b1, b2, b3 = st.columns(3)
     with b1:
         st.download_button("Descargar cotización (.txt)", quote_text, file_name="cotizacion.txt")
     with b2:
+        pdf_bytes = build_quote_pdf(inp, r)
+        st.download_button(
+            "📄 Descargar PDF",
+            pdf_bytes,
+            file_name=f"cotizacion_{(nombre_modelo or 'pieza').strip().replace(' ', '_')}.pdf",
+            mime="application/pdf",
+        )
+    with b3:
         if st.button("Guardar en historial", type="primary"):
             db.save_cotizacion(
                 {
@@ -350,7 +359,8 @@ st.divider()
 st.subheader("📋 Historial de cotizaciones")
 historial = db.load_historial()
 if historial:
-    hist_df = pd.DataFrame(historial).drop(columns=["id"])
+    hist_df_raw = pd.DataFrame(historial)
+    hist_df = hist_df_raw.drop(columns=["id"]).copy()
     hist_df["fecha"] = pd.to_datetime(hist_df["fecha"]).dt.strftime("%d/%m/%Y %H:%M")
     hist_df["cliente"] = hist_df["cliente"].fillna("-")
     for col in ["costo_total", "precio_total", "ganancia_total"]:
@@ -367,15 +377,34 @@ if historial:
             "ganancia_total": "Ganancia",
         }
     )
-    st.dataframe(hist_df, hide_index=True, use_container_width=True)
-    st.download_button(
-        "Exportar historial (CSV)",
-        hist_df.to_csv(index=False).encode("utf-8"),
-        file_name="historial_cotizaciones.csv",
+    st.caption("Selecciona una fila para poder borrarla individualmente.")
+    seleccion = st.dataframe(
+        hist_df,
+        hide_index=True,
+        use_container_width=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key="historial_tabla",
     )
+    filas_elegidas = seleccion.selection.rows if seleccion and seleccion.selection else []
 
+    b1, b2 = st.columns(2)
+    with b1:
+        st.download_button(
+            "Exportar historial (CSV)",
+            hist_df.to_csv(index=False).encode("utf-8"),
+            file_name="historial_cotizaciones.csv",
+        )
+    with b2:
+        if filas_elegidas:
+            fila = hist_df_raw.iloc[filas_elegidas[0]]
+            if st.button(f"🗑 Borrar cotización seleccionada ({fila['modelo']})"):
+                db.delete_cotizacion(int(fila["id"]))
+                st.rerun()
+
+    st.divider()
     confirmar_borrado = st.checkbox("Confirmo que quiero borrar todo el historial de forma permanente")
-    if st.button("Borrar historial", disabled=not confirmar_borrado):
+    if st.button("Borrar todo el historial", disabled=not confirmar_borrado):
         db.clear_historial()
         st.rerun()
 else:

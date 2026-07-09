@@ -145,3 +145,10 @@ def clear_historial():
     with conn.session as s:
         s.execute(delete(cotizaciones_t))
         s.commit()
+
+
+def delete_cotizacion(cotizacion_id):
+    conn = get_connection()
+    with conn.session as s:
+        s.execute(delete(cotizaciones_t).where(cotizaciones_t.c.id == cotizacion_id))
+        s.commit()
