@@ -1,9 +1,14 @@
-import io
 import re
 import xml.etree.ElementTree as ET
 import zipfile
 
-MAX_BYTES = 50 * 1024 * 1024  # 50 MB de seguridad
+# Tope de seguridad para el tamaño total del archivo (no se lee completo en
+# memoria salvo que sea necesario -- ver parse_bambu_file).
+MAX_BYTES = 500 * 1024 * 1024
+
+# El encabezado con los datos que buscamos siempre está al inicio del .gcode,
+# así que basta con leer un prefijo aunque el archivo pese cientos de MB.
+HEADER_PREFIX_BYTES = 512 * 1024
 
 
 def _tiempo_a_horas(fragmento):
@@ -76,18 +81,28 @@ def parse_bambu_file(uploaded_file):
     """Extrae tiempo total y peso de filamento de un .gcode o .gcode.3mf de
     Bambu Studio. Devuelve una lista de placas (una por cada plato del
     proyecto); un .gcode plano siempre devuelve una sola.
-    """
-    data = uploaded_file.read()
-    if len(data) > MAX_BYTES:
-        raise ValueError("El archivo es demasiado grande (>50 MB).")
 
-    if data[:2] != b"PK":
-        # .gcode plano
-        texto = data.decode("utf-8", errors="ignore")
+    No lee el archivo completo en memoria: para un .gcode plano basta con
+    el encabezado (los datos que buscamos están en las primeras líneas), y
+    para un .3mf se usa el archivo tal cual (zipfile solo lee lo necesario).
+    """
+    tamano = getattr(uploaded_file, "size", None)
+    if tamano is not None and tamano > MAX_BYTES:
+        raise ValueError(
+            f"El archivo pesa {tamano / 1024 / 1024:.0f} MB, más que el límite de "
+            f"{MAX_BYTES // 1024 // 1024} MB."
+        )
+
+    cabecera = uploaded_file.read(2)
+    uploaded_file.seek(0)
+
+    if cabecera != b"PK":
+        # .gcode plano: solo se lee el prefijo con el encabezado.
+        texto = uploaded_file.read(HEADER_PREFIX_BYTES).decode("utf-8", errors="ignore")
         item = _parse_gcode_text(texto)
         return [item] if item else []
 
-    with zipfile.ZipFile(io.BytesIO(data)) as z:
+    with zipfile.ZipFile(uploaded_file) as z:
         nombres = z.namelist()
 
         if "Metadata/slice_info.config" in nombres:
@@ -96,7 +111,7 @@ def parse_bambu_file(uploaded_file):
                 return placas
 
         # Respaldo: no hay slice_info.config o no trajo datos utilizables,
-        # parsear cada plate_N.gcode encontrado dentro del zip.
+        # parsear el encabezado de cada plate_N.gcode encontrado dentro del zip.
         gcode_nombres = sorted(n for n in nombres if n.lower().endswith(".gcode"))
         if not gcode_nombres:
             raise ValueError(
@@ -106,7 +121,7 @@ def parse_bambu_file(uploaded_file):
         placas = []
         for i, nombre in enumerate(gcode_nombres):
             with z.open(nombre) as f:
-                texto = f.read().decode("utf-8", errors="ignore")
+                texto = f.read(HEADER_PREFIX_BYTES).decode("utf-8", errors="ignore")
             item = _parse_gcode_text(texto)
             if item:
                 match = re.search(r"plate_(\d+)", nombre)
