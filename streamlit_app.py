@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 
 import db
+from bambu_parser import parse_bambu_file
 
 st.set_page_config(page_title="Cotizador de Impresión 3D", page_icon="🖨️", layout="wide")
 
@@ -105,6 +106,13 @@ def build_quote_text(inp, r):
 cfg = db.load_config()
 materiales = db.load_materiales()
 
+st.session_state.setdefault("peso_pieza_input", 50.0)
+st.session_state.setdefault("purga_ams_input", 5.0)
+st.session_state.setdefault("horas_impresion", 0)
+st.session_state.setdefault("minutos_impresion", 31)
+st.session_state.setdefault("horas_postproceso", 0)
+st.session_state.setdefault("minutos_postproceso", 10)
+
 st.title("🖨️ Cotizador de Impresión 3D")
 st.caption("Bambu Lab A1 — cotizaciones y configuración guardadas en base de datos")
 
@@ -170,15 +178,61 @@ with col_form:
     nombres_materiales = [m["nombre"] for m in materiales] or ["(sin materiales)"]
     material = st.selectbox("Material", nombres_materiales)
 
+    with st.expander("📄 Cargar archivo laminado de Bambu Studio (opcional)"):
+        st.caption(
+            "Sube el .gcode o .gcode.3mf que exporta Bambu Studio al laminar, para prellenar peso y "
+            "tiempo automáticamente. Es opcional — solo ahorra escribir los números a mano; siempre "
+            "puedes revisarlos y ajustarlos después."
+        )
+        archivo_laminado = st.file_uploader(
+            "Archivo laminado", type=["gcode", "3mf"], label_visibility="collapsed"
+        )
+        if archivo_laminado is not None:
+            try:
+                datos_detectados = parse_bambu_file(archivo_laminado)
+            except Exception as e:
+                datos_detectados = {}
+                st.warning(f"No se pudo leer el archivo: {e}")
+
+            if datos_detectados:
+                resumen = []
+                if "peso_total_g" in datos_detectados:
+                    resumen.append(f"peso total: {datos_detectados['peso_total_g']:.2f} g")
+                if "horas" in datos_detectados:
+                    h = int(datos_detectados["horas"])
+                    m = round((datos_detectados["horas"] - h) * 60)
+                    etiqueta = "tiempo total" if datos_detectados.get("tiempo_es_total") else "tiempo de impresión"
+                    resumen.append(f"{etiqueta}: {h}h {m}min")
+                if "purga_g" in datos_detectados:
+                    resumen.append(f"purga detectada: {datos_detectados['purga_g']:.2f} g")
+                st.info("Detectado en el archivo — " + " · ".join(resumen))
+                if st.button("Usar estos valores en el formulario"):
+                    if "peso_total_g" in datos_detectados:
+                        st.session_state["peso_pieza_input"] = round(datos_detectados["peso_total_g"], 2)
+                    if "horas" in datos_detectados:
+                        h = int(datos_detectados["horas"])
+                        m = round((datos_detectados["horas"] - h) * 60)
+                        st.session_state["horas_impresion"] = h
+                        st.session_state["minutos_impresion"] = m
+                    if "purga_g" in datos_detectados:
+                        st.session_state["purga_ams_input"] = round(datos_detectados["purga_g"], 2)
+                    st.success("Valores aplicados abajo. Revísalos antes de cotizar.")
+                    st.rerun()
+            else:
+                st.warning(
+                    "No se reconocieron datos en este archivo (puede variar por versión de Bambu "
+                    "Studio). Llena los campos manualmente."
+                )
+
     c1, c2 = st.columns(2)
     with c1:
-        peso_pieza = st.number_input("Peso pieza (g)", min_value=0.0, value=50.0, step=1.0)
+        peso_pieza = st.number_input("Peso pieza (g)", min_value=0.0, step=1.0, key="peso_pieza_input")
     with c2:
         purga_ams = st.number_input(
             "Purga AMS (g)",
             min_value=0.0,
-            value=5.0,
             step=1.0,
+            key="purga_ams_input",
             help=(
                 "Filamento que se desperdicia cuando el AMS cambia de color o material durante la "
                 "impresión (las purgas/torres de purga que limpian la boquilla antes de extruir el "
@@ -194,17 +248,17 @@ with col_form:
     st.caption("Tiempo de impresión")
     c1, c2 = st.columns(2)
     with c1:
-        horas_impresion = st.number_input("Horas", min_value=0, value=0, step=1, key="horas_impresion")
+        horas_impresion = st.number_input("Horas", min_value=0, step=1, key="horas_impresion")
     with c2:
-        minutos_impresion = st.number_input("Minutos", min_value=0, max_value=59, value=31, step=1, key="minutos_impresion")
+        minutos_impresion = st.number_input("Minutos", min_value=0, max_value=59, step=1, key="minutos_impresion")
     horas = horas_impresion + minutos_impresion / 60
 
     st.caption("Tiempo de postprocesado")
     c1, c2 = st.columns(2)
     with c1:
-        horas_postproceso = st.number_input("Horas", min_value=0, value=0, step=1, key="horas_postproceso")
+        horas_postproceso = st.number_input("Horas", min_value=0, step=1, key="horas_postproceso")
     with c2:
-        minutos_postproceso = st.number_input("Minutos", min_value=0, max_value=59, value=10, step=1, key="minutos_postproceso")
+        minutos_postproceso = st.number_input("Minutos", min_value=0, max_value=59, step=1, key="minutos_postproceso")
     min_postproceso = horas_postproceso * 60 + minutos_postproceso
 
     c1, c2 = st.columns(2)
