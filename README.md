@@ -1,20 +1,17 @@
 # Cotizador de Impresión 3D
 
-Calculadora web para generar cotizaciones de impresión 3D (pensada para una Bambu Lab A1), basada en la misma lógica de costeo de la hoja de cálculo `Cotizador_Impresion_3D_Bambu_A1.xlsx`.
+Calculadora para generar cotizaciones de impresión 3D (pensada para una Bambu Lab A1), basada en la misma lógica de costeo de la hoja de cálculo `Cotizador_Impresion_3D_Bambu_A1.xlsx`.
 
-No requiere backend ni build: es HTML/CSS/JS puro que corre en el navegador. La configuración de costos y el historial de cotizaciones se guardan en `localStorage` (en el propio navegador del usuario).
+Este repositorio incluye **dos versiones equivalentes**, mismos cálculos, dos formas de publicarla:
 
-## Uso local
+| Versión | Archivos | Dónde se despliega |
+|---|---|---|
+| Sitio estático (HTML/CSS/JS) | `index.html`, `style.css`, `app.js` | GitHub Pages / Netlify |
+| App Python | `streamlit_app.py`, `requirements.txt` | [Streamlit Community Cloud](https://streamlit.io) |
 
-Abre `index.html` directamente en el navegador, o sirve la carpeta con cualquier servidor estático, por ejemplo:
+Repositorio: https://github.com/hdaniel-espinosa/calculadora-3d
 
-```bash
-python -m http.server 8000
-```
-
-y visita `http://localhost:8000`.
-
-## Cómo calcula el precio
+## Cómo calcula el precio (ambas versiones)
 
 1. **Costo material unitario** = (peso pieza + purga AMS) × precio del rollo ÷ peso del rollo
 2. **Electricidad unitaria** = horas de impresión × consumo (kW) × costo por kWh
@@ -27,31 +24,56 @@ y visita `http://localhost:8000`.
 9. **Precio final** = el anterior, según la plataforma elegida, redondeado hacia arriba al múltiplo configurado (por defecto $10)
 10. Los totales del pedido multiplican por la **cantidad**.
 
-Todos estos parámetros (precios de material, electricidad, mano de obra, margen, comisión, tasa de fallos, redondeo) se ajustan desde el botón **⚙ Configuración**, sin tocar el código.
+Todos estos parámetros (precios de material, electricidad, mano de obra, margen, comisión, tasa de fallos, redondeo) se ajustan desde el panel de Configuración, sin tocar el código.
 
-## Publicar el sitio en internet (GitHub Pages, gratis)
+## Versión estática (HTML/CSS/JS)
 
-1. Crea un repositorio nuevo en GitHub (por ejemplo `cotizador-3d-web`).
-2. Sube este proyecto:
-   ```bash
-   git remote add origin https://github.com/<tu-usuario>/cotizador-3d-web.git
-   git branch -M main
-   git push -u origin main
-   ```
-3. En GitHub, ve a **Settings → Pages**, selecciona la rama `main` y la carpeta `/ (root)`.
-4. En un par de minutos el sitio queda disponible en `https://<tu-usuario>.github.io/cotizador-3d-web/`.
+No requiere backend ni build. La configuración y el historial se guardan en `localStorage` del navegador.
 
-Alternativa igual de sencilla: arrastrar la carpeta a [Netlify Drop](https://app.netlify.com/drop) para publicarla sin usar git.
+Uso local:
+```bash
+python -m http.server 8000
+```
+y visita `http://localhost:8000`.
+
+### Publicar en GitHub Pages
+En GitHub → **Settings → Pages** → rama `main` → carpeta `/ (root)`. Queda disponible en `https://hdaniel-espinosa.github.io/calculadora-3d/`.
+
+Alternativa: arrastrar la carpeta a [Netlify Drop](https://app.netlify.com/drop).
+
+## Versión Streamlit (Python)
+
+Misma lógica de cálculo, reescrita en `streamlit_app.py`. La configuración y el historial viven en la sesión del navegador (`st.session_state`) — se reinician si recargas la página o si la app se "duerme" por inactividad.
+
+Uso local:
+```bash
+pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
+
+### Publicar en Streamlit Community Cloud
+1. Entra a **https://share.streamlit.io** e inicia sesión con tu cuenta de GitHub (la misma dueña de este repo).
+2. Clic en **"New app"** (o **"Create app"**).
+3. Selecciona el repositorio `hdaniel-espinosa/calculadora-3d`, rama `main`, archivo principal `streamlit_app.py`.
+4. Clic en **Deploy**. En 1-2 minutos queda publicada en una URL tipo `https://calculadora-3d-<algo>.streamlit.app`.
+
+Este último paso requiere iniciar sesión con tu cuenta, así que no se puede automatizar de este lado — el resto del trabajo (código, repo, requirements.txt) ya está listo para que solo falten esos clics.
 
 ## Estructura
 
 ```
-index.html   estructura de la página (formulario, resultados, modales)
-style.css    estilos
-app.js       lógica de cálculo, configuración e historial
+index.html         sitio estático: estructura de la página
+style.css           sitio estático: estilos
+app.js              sitio estático: lógica de cálculo, configuración e historial
+streamlit_app.py    app Streamlit equivalente en Python
+requirements.txt    dependencias de la app Streamlit
 ```
+
+## Excel
+
+`excel/Cotizador_Impresion_3D_Bambu_A1_v2.xlsx` es la versión mejorada de la hoja de cálculo original: agrega totales por cantidad, selección de plataforma funcional, tabla de materiales ampliable, tasa de fallos, redondeo de precio y formato profesional.
 
 ## Notas
 
-- El historial y la configuración viven en el navegador de cada persona (localStorage). Si se abre el sitio desde otro dispositivo o navegador, empieza vacío.
-- No hay servidor ni base de datos: es ideal para uso personal o de un solo negocio, no para múltiples usuarios compartiendo datos en tiempo real.
+- Las dos versiones implementan la misma fórmula por separado (una en JavaScript, otra en Python). Si cambias la lógica de costeo, actualiza ambas.
+- Ninguna de las dos versiones tiene base de datos: el historial vive solo en el navegador/sesión de quien la usa, no se comparte entre dispositivos ni usuarios.
