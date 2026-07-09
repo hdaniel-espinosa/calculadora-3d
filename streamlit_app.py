@@ -173,11 +173,44 @@ with col_form:
     c1, c2 = st.columns(2)
     with c1:
         peso_pieza = st.number_input("Peso pieza (g)", min_value=0.0, value=50.0, step=1.0)
-        horas = st.number_input("Horas de impresión", min_value=0.0, value=3.0, step=0.1)
+    with c2:
+        purga_ams = st.number_input(
+            "Purga AMS (g)",
+            min_value=0.0,
+            value=5.0,
+            step=1.0,
+            help=(
+                "Filamento que se desperdicia cuando el AMS cambia de color o material durante la "
+                "impresión (las purgas/torres de purga que limpian la boquilla antes de extruir el "
+                "nuevo filamento).\n\n"
+                "- Pieza de un solo color/material: deja este campo en 0.\n"
+                "- Pieza multicolor con AMS: en Bambu Studio, después de laminar, compara el peso "
+                "total de filamento del proyecto contra el peso del modelo + soportes — la diferencia "
+                "es lo que se purgó. Si no tienes el dato exacto, una referencia común es 2-5 g por "
+                "cada cambio de color."
+            ),
+        )
+
+    st.caption("Tiempo de impresión")
+    c1, c2 = st.columns(2)
+    with c1:
+        horas_impresion = st.number_input("Horas", min_value=0, value=0, step=1, key="horas_impresion")
+    with c2:
+        minutos_impresion = st.number_input("Minutos", min_value=0, max_value=59, value=31, step=1, key="minutos_impresion")
+    horas = horas_impresion + minutos_impresion / 60
+
+    st.caption("Tiempo de postprocesado")
+    c1, c2 = st.columns(2)
+    with c1:
+        horas_postproceso = st.number_input("Horas", min_value=0, value=0, step=1, key="horas_postproceso")
+    with c2:
+        minutos_postproceso = st.number_input("Minutos", min_value=0, max_value=59, value=10, step=1, key="minutos_postproceso")
+    min_postproceso = horas_postproceso * 60 + minutos_postproceso
+
+    c1, c2 = st.columns(2)
+    with c1:
         cantidad = st.number_input("Cantidad", min_value=1, value=1, step=1)
     with c2:
-        purga_ams = st.number_input("Purga AMS (g)", min_value=0.0, value=5.0, step=1.0)
-        min_postproceso = st.number_input("Minutos de postproceso", min_value=0.0, value=10.0, step=1.0)
         plataforma = st.selectbox("Plataforma de venta", ["Venta directa", "Mercado Libre"])
 
     cliente = st.text_input("Cliente (opcional)")
