@@ -1,29 +1,9 @@
 import io
 import re
+import xml.etree.ElementTree as ET
 import zipfile
 
 MAX_BYTES = 50 * 1024 * 1024  # 50 MB de seguridad
-
-
-def _extraer_texto_gcode(uploaded_file):
-    data = uploaded_file.read()
-    if len(data) > MAX_BYTES:
-        raise ValueError("El archivo es demasiado grande (>50 MB).")
-
-    if data[:2] == b"PK":  # .gcode.3mf es un zip
-        with zipfile.ZipFile(io.BytesIO(data)) as z:
-            candidatos = [n for n in z.namelist() if n.lower().endswith(".gcode")]
-            if not candidatos:
-                raise ValueError(
-                    "El .3mf no contiene un G-code adentro. "
-                    "Vuelve a exportar con 'File > Export > Export plate sliced file'."
-                )
-            with z.open(candidatos[0]) as f:
-                raw = f.read()
-    else:
-        raw = data
-
-    return raw.decode("utf-8", errors="ignore")
 
 
 def _tiempo_a_horas(fragmento):
@@ -40,14 +20,11 @@ def _tiempo_a_horas(fragmento):
     return total_min / 60 if total_min else None
 
 
-def parse_bambu_file(uploaded_file):
-    """Extrae tiempo total y peso de filamento de un .gcode o .gcode.3mf de Bambu Studio.
+def _parse_gcode_text(texto):
+    """Parser best-effort de los comentarios de encabezado de un .gcode.
 
-    Es un parser best-effort basado en los comentarios que Bambu Studio agrega
-    al encabezado del G-code; el formato puede variar entre versiones, así que
-    puede no encontrar todos los datos.
+    El formato puede variar entre versiones de Bambu Studio.
     """
-    texto = _extraer_texto_gcode(uploaded_file)
     resultado = {}
 
     tiempo_total = re.search(r"total estimated time[^\n;]*?:\s*([\dhms\s]{1,20})", texto, re.IGNORECASE)
@@ -70,3 +47,69 @@ def parse_bambu_file(uploaded_file):
         resultado["purga_g"] = float(purga.group(1))
 
     return resultado
+
+
+def _parse_slice_info(data):
+    """Parser del XML Metadata/slice_info.config: una placa por <plate>, con
+    peso e índice reales, más confiable que leer texto del gcode."""
+    root = ET.fromstring(data)
+    placas = []
+    for plate in root.findall("plate"):
+        meta = {m.get("key"): m.get("value") for m in plate.findall("metadata")}
+        item = {}
+        index = meta.get("index")
+        if index:
+            item["index"] = int(index)
+        peso = meta.get("weight")
+        if peso:
+            item["peso_total_g"] = float(peso)
+        prediccion = meta.get("prediction")  # segundos
+        if prediccion:
+            item["horas"] = float(prediccion) / 3600
+            item["tiempo_es_total"] = True
+        if "peso_total_g" in item or "horas" in item:
+            placas.append(item)
+    return placas
+
+
+def parse_bambu_file(uploaded_file):
+    """Extrae tiempo total y peso de filamento de un .gcode o .gcode.3mf de
+    Bambu Studio. Devuelve una lista de placas (una por cada plato del
+    proyecto); un .gcode plano siempre devuelve una sola.
+    """
+    data = uploaded_file.read()
+    if len(data) > MAX_BYTES:
+        raise ValueError("El archivo es demasiado grande (>50 MB).")
+
+    if data[:2] != b"PK":
+        # .gcode plano
+        texto = data.decode("utf-8", errors="ignore")
+        item = _parse_gcode_text(texto)
+        return [item] if item else []
+
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        nombres = z.namelist()
+
+        if "Metadata/slice_info.config" in nombres:
+            placas = _parse_slice_info(z.read("Metadata/slice_info.config"))
+            if placas:
+                return placas
+
+        # Respaldo: no hay slice_info.config o no trajo datos utilizables,
+        # parsear cada plate_N.gcode encontrado dentro del zip.
+        gcode_nombres = sorted(n for n in nombres if n.lower().endswith(".gcode"))
+        if not gcode_nombres:
+            raise ValueError(
+                "El .3mf no contiene un G-code adentro. "
+                "Vuelve a exportar con 'File > Export > Export plate sliced file'."
+            )
+        placas = []
+        for i, nombre in enumerate(gcode_nombres):
+            with z.open(nombre) as f:
+                texto = f.read().decode("utf-8", errors="ignore")
+            item = _parse_gcode_text(texto)
+            if item:
+                match = re.search(r"plate_(\d+)", nombre)
+                item["index"] = int(match.group(1)) if match else i + 1
+                placas.append(item)
+        return placas

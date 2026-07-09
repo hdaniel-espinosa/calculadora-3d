@@ -188,18 +188,41 @@ with col_form:
             "Archivo laminado", type=["gcode", "3mf"], label_visibility="collapsed"
         )
         if archivo_laminado is not None:
-            huella = getattr(archivo_laminado, "file_id", None) or f"{archivo_laminado.name}:{archivo_laminado.size}"
+            try:
+                placas = parse_bambu_file(archivo_laminado)
+                error_archivo = None
+            except Exception as e:
+                placas = []
+                error_archivo = str(e)
 
-            if st.session_state.get("_archivo_procesado") != huella:
-                try:
-                    datos_detectados = parse_bambu_file(archivo_laminado)
-                except Exception as e:
-                    datos_detectados = {}
-                    st.session_state["_archivo_error"] = str(e)
+            if error_archivo:
+                st.warning(f"No se pudo leer el archivo: {error_archivo}")
+            elif not placas:
+                st.warning(
+                    "No se reconocieron datos en este archivo (puede variar por versión de Bambu "
+                    "Studio). Llena los campos manualmente."
+                )
+            else:
+                def _etiqueta_placa(p, i):
+                    h = int(p.get("horas", 0))
+                    m = round((p.get("horas", 0) - h) * 60)
+                    return f"Placa {p.get('index', i + 1)} — {p.get('peso_total_g', 0):.2f} g, {h}h {m}min"
+
+                if len(placas) > 1:
+                    st.caption(f"Este archivo tiene {len(placas)} placas de impresión.")
+                    opciones = {_etiqueta_placa(p, i): i for i, p in enumerate(placas)}
+                    etiqueta_elegida = st.radio(
+                        "Elige qué placa cargar", list(opciones.keys()), key="placa_elegida"
+                    )
+                    plate_idx = opciones[etiqueta_elegida]
                 else:
-                    st.session_state["_archivo_error"] = None
+                    plate_idx = 0
 
-                if datos_detectados:
+                datos_detectados = placas[plate_idx]
+                base_huella = getattr(archivo_laminado, "file_id", None) or f"{archivo_laminado.name}:{archivo_laminado.size}"
+                huella = f"{base_huella}:{plate_idx}"
+
+                if st.session_state.get("_archivo_procesado") != huella:
                     resumen = []
                     if "peso_total_g" in datos_detectados:
                         st.session_state["peso_pieza_input"] = round(datos_detectados["peso_total_g"], 2)
@@ -215,21 +238,10 @@ with col_form:
                         st.session_state["purga_ams_input"] = round(datos_detectados["purga_g"], 2)
                         resumen.append(f"purga detectada: {datos_detectados['purga_g']:.2f} g")
                     st.session_state["_archivo_resumen"] = " · ".join(resumen)
-                else:
-                    st.session_state["_archivo_resumen"] = None
+                    st.session_state["_archivo_procesado"] = huella
+                    st.rerun()
 
-                st.session_state["_archivo_procesado"] = huella
-                st.rerun()
-
-            if st.session_state.get("_archivo_error"):
-                st.warning(f"No se pudo leer el archivo: {st.session_state['_archivo_error']}")
-            elif st.session_state.get("_archivo_resumen"):
-                st.success("Datos aplicados al formulario — " + st.session_state["_archivo_resumen"])
-            else:
-                st.warning(
-                    "No se reconocieron datos en este archivo (puede variar por versión de Bambu "
-                    "Studio). Llena los campos manualmente."
-                )
+                st.success("Datos aplicados al formulario — " + st.session_state.get("_archivo_resumen", ""))
 
     c1, c2 = st.columns(2)
     with c1:
