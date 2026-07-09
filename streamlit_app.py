@@ -106,12 +106,12 @@ def build_quote_text(inp, r):
 cfg = db.load_config()
 materiales = db.load_materiales()
 
-st.session_state.setdefault("peso_pieza_input", 50.0)
-st.session_state.setdefault("purga_ams_input", 5.0)
+st.session_state.setdefault("peso_pieza_input", 0.0)
+st.session_state.setdefault("purga_ams_input", 0.0)
 st.session_state.setdefault("horas_impresion", 0)
-st.session_state.setdefault("minutos_impresion", 31)
+st.session_state.setdefault("minutos_impresion", 0)
 st.session_state.setdefault("horas_postproceso", 0)
-st.session_state.setdefault("minutos_postproceso", 10)
+st.session_state.setdefault("minutos_postproceso", 0)
 
 st.title("🖨️ Cotizador de Impresión 3D")
 st.caption("Bambu Lab A1 — cotizaciones y configuración guardadas en base de datos")
@@ -188,36 +188,43 @@ with col_form:
             "Archivo laminado", type=["gcode", "3mf"], label_visibility="collapsed"
         )
         if archivo_laminado is not None:
-            try:
-                datos_detectados = parse_bambu_file(archivo_laminado)
-            except Exception as e:
-                datos_detectados = {}
-                st.warning(f"No se pudo leer el archivo: {e}")
+            huella = getattr(archivo_laminado, "file_id", None) or f"{archivo_laminado.name}:{archivo_laminado.size}"
 
-            if datos_detectados:
-                resumen = []
-                if "peso_total_g" in datos_detectados:
-                    resumen.append(f"peso total: {datos_detectados['peso_total_g']:.2f} g")
-                if "horas" in datos_detectados:
-                    h = int(datos_detectados["horas"])
-                    m = round((datos_detectados["horas"] - h) * 60)
-                    etiqueta = "tiempo total" if datos_detectados.get("tiempo_es_total") else "tiempo de impresión"
-                    resumen.append(f"{etiqueta}: {h}h {m}min")
-                if "purga_g" in datos_detectados:
-                    resumen.append(f"purga detectada: {datos_detectados['purga_g']:.2f} g")
-                st.info("Detectado en el archivo — " + " · ".join(resumen))
-                if st.button("Usar estos valores en el formulario"):
+            if st.session_state.get("_archivo_procesado") != huella:
+                try:
+                    datos_detectados = parse_bambu_file(archivo_laminado)
+                except Exception as e:
+                    datos_detectados = {}
+                    st.session_state["_archivo_error"] = str(e)
+                else:
+                    st.session_state["_archivo_error"] = None
+
+                if datos_detectados:
+                    resumen = []
                     if "peso_total_g" in datos_detectados:
                         st.session_state["peso_pieza_input"] = round(datos_detectados["peso_total_g"], 2)
+                        resumen.append(f"peso total: {datos_detectados['peso_total_g']:.2f} g")
                     if "horas" in datos_detectados:
                         h = int(datos_detectados["horas"])
                         m = round((datos_detectados["horas"] - h) * 60)
                         st.session_state["horas_impresion"] = h
                         st.session_state["minutos_impresion"] = m
+                        etiqueta = "tiempo total" if datos_detectados.get("tiempo_es_total") else "tiempo de impresión"
+                        resumen.append(f"{etiqueta}: {h}h {m}min")
                     if "purga_g" in datos_detectados:
                         st.session_state["purga_ams_input"] = round(datos_detectados["purga_g"], 2)
-                    st.success("Valores aplicados abajo. Revísalos antes de cotizar.")
-                    st.rerun()
+                        resumen.append(f"purga detectada: {datos_detectados['purga_g']:.2f} g")
+                    st.session_state["_archivo_resumen"] = " · ".join(resumen)
+                else:
+                    st.session_state["_archivo_resumen"] = None
+
+                st.session_state["_archivo_procesado"] = huella
+                st.rerun()
+
+            if st.session_state.get("_archivo_error"):
+                st.warning(f"No se pudo leer el archivo: {st.session_state['_archivo_error']}")
+            elif st.session_state.get("_archivo_resumen"):
+                st.success("Datos aplicados al formulario — " + st.session_state["_archivo_resumen"])
             else:
                 st.warning(
                     "No se reconocieron datos en este archivo (puede variar por versión de Bambu "
