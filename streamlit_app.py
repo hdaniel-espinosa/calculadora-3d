@@ -4,32 +4,23 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
+import db
+
 st.set_page_config(page_title="Cotizador de Impresión 3D", page_icon="🖨️", layout="wide")
 
-DEFAULT_CONFIG = {
-    "materiales": [
-        {"Material": "PLA Pro", "Precio rollo ($)": 279.0},
-        {"Material": "PLA Matte", "Precio rollo ($)": 289.0},
-    ],
-    "peso_rollo": 1000.0,
-    "costo_electricidad": 2.8,
-    "consumo_a1": 0.1,
-    "desgaste_por_hora": 6.0,
-    "mano_obra_por_hora": 180.0,
-    "empaque_basico": 8.0,
-    "tasa_fallos": 5.0,
-    "margen_ganancia": 40.0,
-    "comision_ml": 16.0,
-    "redondeo": 10.0,
-}
-
-
-def init_state():
-    if "config" not in st.session_state:
-        st.session_state.config = {k: (list(v) if isinstance(v, list) else v) for k, v in DEFAULT_CONFIG.items()}
-        st.session_state.config["materiales"] = [dict(m) for m in DEFAULT_CONFIG["materiales"]]
-    if "historial" not in st.session_state:
-        st.session_state.historial = []
+try:
+    db.get_connection()
+except Exception as e:
+    st.error(
+        "**No se pudo conectar a la base de datos.**\n\n"
+        "Configura el secreto de conexión en Streamlit Cloud "
+        "(⋮ → Settings → Secrets) con el siguiente formato:\n\n"
+        '```toml\n[connections.db]\nurl = "postgresql://usuario:password@host:5432/postgres"\n```\n\n'
+        "Usa la cadena de conexión de tu proyecto de Supabase "
+        "(Project Settings → Database → Connection string → URI)."
+    )
+    st.caption(f"Detalle técnico: {e}")
+    st.stop()
 
 
 def ceil_to_multiple(value, multiple):
@@ -38,25 +29,26 @@ def ceil_to_multiple(value, multiple):
     return math.ceil(value / multiple) * multiple
 
 
-def calcular(inp, cfg):
-    materiales = {m["Material"]: m["Precio rollo ($)"] for m in cfg["materiales"] if m["Material"]}
-    precio_rollo = materiales.get(inp["material"], 0.0)
+def calcular(inp, cfg, materiales):
+    precios = {m["nombre"]: float(m["precio_rollo"]) for m in materiales}
+    precio_rollo = precios.get(inp["material"], 0.0)
 
-    costo_material = (inp["peso_pieza"] + inp["purga_ams"]) * precio_rollo / cfg["peso_rollo"] if cfg["peso_rollo"] else 0
-    electricidad = inp["horas"] * cfg["consumo_a1"] * cfg["costo_electricidad"]
-    desgaste = inp["horas"] * cfg["desgaste_por_hora"]
-    mano_obra = (inp["min_postproceso"] / 60) * cfg["mano_obra_por_hora"]
+    peso_rollo = float(cfg["peso_rollo"]) or 1.0
+    costo_material = (inp["peso_pieza"] + inp["purga_ams"]) * precio_rollo / peso_rollo
+    electricidad = inp["horas"] * float(cfg["consumo_a1"]) * float(cfg["costo_electricidad"])
+    desgaste = inp["horas"] * float(cfg["desgaste_por_hora"])
+    mano_obra = (inp["min_postproceso"] / 60) * float(cfg["mano_obra_por_hora"])
 
     subtotal = costo_material + electricidad + desgaste + mano_obra
-    ajuste_fallos = subtotal * (cfg["tasa_fallos"] / 100)
-    empaque = cfg["empaque_basico"]
+    ajuste_fallos = subtotal * (float(cfg["tasa_fallos"]) / 100)
+    empaque = float(cfg["empaque_basico"])
     costo_total_unitario = subtotal + ajuste_fallos + empaque
 
-    precio_sugerido = costo_total_unitario * (1 + cfg["margen_ganancia"] / 100)
-    denom = 1 - cfg["comision_ml"] / 100
+    precio_sugerido = costo_total_unitario * (1 + float(cfg["margen_ganancia"]) / 100)
+    denom = 1 - float(cfg["comision_ml"]) / 100
     precio_ml = precio_sugerido / denom if denom else precio_sugerido
     precio_final_unitario = precio_ml if inp["plataforma"] == "Mercado Libre" else precio_sugerido
-    precio_redondeado = ceil_to_multiple(precio_final_unitario, cfg["redondeo"])
+    precio_redondeado = ceil_to_multiple(precio_final_unitario, float(cfg["redondeo"]))
     ganancia_unitaria = precio_redondeado - costo_total_unitario
 
     costo_total_pedido = costo_total_unitario * inp["cantidad"]
@@ -110,52 +102,72 @@ def build_quote_text(inp, r):
     return "\n".join(lines)
 
 
-init_state()
-cfg = st.session_state.config
+cfg = db.load_config()
+materiales = db.load_materiales()
 
 st.title("🖨️ Cotizador de Impresión 3D")
-st.caption("Misma lógica de costeo que el Excel y la calculadora web — Bambu Lab A1")
+st.caption("Bambu Lab A1 — cotizaciones y configuración guardadas en base de datos")
 
 with st.expander("⚙ Configuración de costos"):
     st.markdown("**Materiales (precio por rollo de 1 kg)**")
-    materiales_df = pd.DataFrame(cfg["materiales"])
+    materiales_df = pd.DataFrame(materiales, columns=["nombre", "precio_rollo"])
     edited = st.data_editor(
         materiales_df,
         num_rows="dynamic",
         use_container_width=True,
         key="materiales_editor",
         column_config={
-            "Material": st.column_config.TextColumn(required=True),
-            "Precio rollo ($)": st.column_config.NumberColumn(min_value=0.0, format="$%.2f", required=True),
+            "nombre": st.column_config.TextColumn("Material", required=True),
+            "precio_rollo": st.column_config.NumberColumn("Precio rollo ($)", min_value=0.0, format="$%.2f", required=True),
         },
     )
-    cfg["materiales"] = edited.dropna(subset=["Material"]).to_dict("records")
 
     c1, c2 = st.columns(2)
     with c1:
-        cfg["peso_rollo"] = st.number_input("Peso del rollo (g)", min_value=1.0, value=float(cfg["peso_rollo"]))
-        cfg["costo_electricidad"] = st.number_input("Costo electricidad ($/kWh)", min_value=0.0, value=float(cfg["costo_electricidad"]))
-        cfg["consumo_a1"] = st.number_input("Consumo promedio A1 (kW)", min_value=0.0, value=float(cfg["consumo_a1"]))
-        cfg["desgaste_por_hora"] = st.number_input("Desgaste impresora por hora ($)", min_value=0.0, value=float(cfg["desgaste_por_hora"]))
-        cfg["mano_obra_por_hora"] = st.number_input("Mano de obra por hora ($)", min_value=0.0, value=float(cfg["mano_obra_por_hora"]))
+        peso_rollo = st.number_input("Peso del rollo (g)", min_value=1.0, value=float(cfg["peso_rollo"]))
+        costo_electricidad = st.number_input("Costo electricidad ($/kWh)", min_value=0.0, value=float(cfg["costo_electricidad"]))
+        consumo_a1 = st.number_input("Consumo promedio A1 (kW)", min_value=0.0, value=float(cfg["consumo_a1"]))
+        desgaste_por_hora = st.number_input("Desgaste impresora por hora ($)", min_value=0.0, value=float(cfg["desgaste_por_hora"]))
+        mano_obra_por_hora = st.number_input("Mano de obra por hora ($)", min_value=0.0, value=float(cfg["mano_obra_por_hora"]))
     with c2:
-        cfg["empaque_basico"] = st.number_input("Empaque básico ($)", min_value=0.0, value=float(cfg["empaque_basico"]))
-        cfg["tasa_fallos"] = st.number_input("Tasa de fallos / desperdicio (%)", min_value=0.0, value=float(cfg["tasa_fallos"]))
-        cfg["margen_ganancia"] = st.number_input("Margen de ganancia (%)", min_value=0.0, value=float(cfg["margen_ganancia"]))
-        cfg["comision_ml"] = st.number_input("Comisión Mercado Libre (%)", min_value=0.0, max_value=99.0, value=float(cfg["comision_ml"]))
-        cfg["redondeo"] = st.number_input("Redondeo de precio final (múltiplo de $)", min_value=0.0, value=float(cfg["redondeo"]))
+        empaque_basico = st.number_input("Empaque básico ($)", min_value=0.0, value=float(cfg["empaque_basico"]))
+        tasa_fallos = st.number_input("Tasa de fallos / desperdicio (%)", min_value=0.0, value=float(cfg["tasa_fallos"]))
+        margen_ganancia = st.number_input("Margen de ganancia (%)", min_value=0.0, value=float(cfg["margen_ganancia"]))
+        comision_ml = st.number_input("Comisión Mercado Libre (%)", min_value=0.0, max_value=99.0, value=float(cfg["comision_ml"]))
+        redondeo = st.number_input("Redondeo de precio final (múltiplo de $)", min_value=0.0, value=float(cfg["redondeo"]))
 
-    if st.button("Restaurar valores por defecto"):
-        st.session_state.config = {k: (list(v) if isinstance(v, list) else v) for k, v in DEFAULT_CONFIG.items()}
-        st.session_state.config["materiales"] = [dict(m) for m in DEFAULT_CONFIG["materiales"]]
-        st.rerun()
+    b1, b2 = st.columns(2)
+    with b1:
+        if st.button("💾 Guardar configuración", type="primary"):
+            db.save_materiales(edited.to_dict("records"))
+            db.save_config(
+                {
+                    "peso_rollo": peso_rollo,
+                    "costo_electricidad": costo_electricidad,
+                    "consumo_a1": consumo_a1,
+                    "desgaste_por_hora": desgaste_por_hora,
+                    "mano_obra_por_hora": mano_obra_por_hora,
+                    "empaque_basico": empaque_basico,
+                    "tasa_fallos": tasa_fallos,
+                    "margen_ganancia": margen_ganancia,
+                    "comision_ml": comision_ml,
+                    "redondeo": redondeo,
+                }
+            )
+            st.success("Configuración guardada en la base de datos.")
+            st.rerun()
+    with b2:
+        if st.button("Restaurar valores por defecto"):
+            db.save_config(db.DEFAULT_CONFIG)
+            db.save_materiales(db.DEFAULT_MATERIALES)
+            st.rerun()
 
 col_form, col_result = st.columns(2)
 
 with col_form:
     st.subheader("Datos de la pieza")
     nombre_modelo = st.text_input("Nombre del modelo", placeholder="Ej. Soporte para celular")
-    nombres_materiales = [m["Material"] for m in cfg["materiales"] if m["Material"]] or ["(sin materiales)"]
+    nombres_materiales = [m["nombre"] for m in materiales] or ["(sin materiales)"]
     material = st.selectbox("Material", nombres_materiales)
 
     c1, c2 = st.columns(2)
@@ -181,7 +193,7 @@ inp = {
     "plataforma": plataforma,
     "cliente": cliente,
 }
-r = calcular(inp, cfg)
+r = calcular(inp, cfg, materiales)
 
 with col_result:
     st.subheader("Desglose de costos")
@@ -213,33 +225,52 @@ with col_result:
     with b1:
         st.download_button("Descargar cotización (.txt)", quote_text, file_name="cotizacion.txt")
     with b2:
-        if st.button("Guardar en historial"):
-            st.session_state.historial.insert(
-                0,
+        if st.button("Guardar en historial", type="primary"):
+            db.save_cotizacion(
                 {
-                    "Fecha": date.today().strftime("%d/%m/%Y"),
-                    "Modelo": nombre_modelo or "(sin nombre)",
-                    "Cliente": cliente or "-",
-                    "Cantidad": cantidad,
-                    "Costo": round(r["costo_total_pedido"], 2),
-                    "Venta": round(r["precio_total_pedido"], 2),
-                    "Ganancia": round(r["ganancia_total_pedido"], 2),
-                },
+                    "modelo": nombre_modelo or "(sin nombre)",
+                    "material": material,
+                    "cliente": cliente or None,
+                    "cantidad": int(cantidad),
+                    "costo_total": round(r["costo_total_pedido"], 2),
+                    "precio_total": round(r["precio_total_pedido"], 2),
+                    "ganancia_total": round(r["ganancia_total_pedido"], 2),
+                }
             )
-            st.success("Cotización guardada en el historial de esta sesión.")
+            st.success("Cotización guardada en la base de datos.")
+            st.rerun()
 
 st.divider()
-st.subheader("📋 Historial de esta sesión")
-if st.session_state.historial:
-    hist_df = pd.DataFrame(st.session_state.historial)
+st.subheader("📋 Historial de cotizaciones")
+historial = db.load_historial()
+if historial:
+    hist_df = pd.DataFrame(historial).drop(columns=["id"])
+    hist_df["fecha"] = pd.to_datetime(hist_df["fecha"]).dt.strftime("%d/%m/%Y %H:%M")
+    hist_df["cliente"] = hist_df["cliente"].fillna("-")
+    for col in ["costo_total", "precio_total", "ganancia_total"]:
+        hist_df[col] = hist_df[col].astype(float).map(money)
+    hist_df = hist_df.rename(
+        columns={
+            "fecha": "Fecha",
+            "modelo": "Modelo",
+            "material": "Material",
+            "cliente": "Cliente",
+            "cantidad": "Cantidad",
+            "costo_total": "Costo",
+            "precio_total": "Venta",
+            "ganancia_total": "Ganancia",
+        }
+    )
     st.dataframe(hist_df, hide_index=True, use_container_width=True)
     st.download_button(
         "Exportar historial (CSV)",
         hist_df.to_csv(index=False).encode("utf-8"),
         file_name="historial_cotizaciones.csv",
     )
-    if st.button("Borrar historial"):
-        st.session_state.historial = []
+
+    confirmar_borrado = st.checkbox("Confirmo que quiero borrar todo el historial de forma permanente")
+    if st.button("Borrar historial", disabled=not confirmar_borrado):
+        db.clear_historial()
         st.rerun()
 else:
-    st.caption("Sin registros aún. El historial vive solo en esta sesión del navegador.")
+    st.caption("Sin cotizaciones guardadas todavía.")

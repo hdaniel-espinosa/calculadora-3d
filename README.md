@@ -1,17 +1,11 @@
 # Cotizador de Impresión 3D
 
-Calculadora para generar cotizaciones de impresión 3D (pensada para una Bambu Lab A1), basada en la misma lógica de costeo de la hoja de cálculo `Cotizador_Impresion_3D_Bambu_A1.xlsx`.
+App en [Streamlit](https://streamlit.io) para generar cotizaciones de impresión 3D (pensada para una Bambu Lab A1). La configuración de costos y el historial de cotizaciones se guardan en una **base de datos Postgres** (recomendado: [Supabase](https://supabase.com), plan gratuito).
 
-Este repositorio incluye **dos versiones equivalentes**, mismos cálculos, dos formas de publicarla:
+**App en vivo:** https://calculadora-3d-impresion.streamlit.app/
+**Repositorio:** https://github.com/hdaniel-espinosa/calculadora-3d
 
-| Versión | Archivos | Dónde se despliega |
-|---|---|---|
-| Sitio estático (HTML/CSS/JS) | `index.html`, `style.css`, `app.js` | GitHub Pages / Netlify |
-| App Python | `streamlit_app.py`, `requirements.txt` | [Streamlit Community Cloud](https://streamlit.io) |
-
-Repositorio: https://github.com/hdaniel-espinosa/calculadora-3d
-
-## Cómo calcula el precio (ambas versiones)
+## Cómo calcula el precio
 
 1. **Costo material unitario** = (peso pieza + purga AMS) × precio del rollo ÷ peso del rollo
 2. **Electricidad unitaria** = horas de impresión × consumo (kW) × costo por kWh
@@ -21,59 +15,53 @@ Repositorio: https://github.com/hdaniel-espinosa/calculadora-3d
 6. **Costo total unitario** = subtotal + ajuste por fallos + empaque
 7. **Precio sugerido** = costo total × (1 + margen de ganancia)
 8. **Precio Mercado Libre** = precio sugerido ÷ (1 − comisión de Mercado Libre)
-9. **Precio final** = el anterior, según la plataforma elegida, redondeado hacia arriba al múltiplo configurado (por defecto $10)
+9. **Precio final** = el anterior según la plataforma elegida, redondeado hacia arriba al múltiplo configurado (por defecto $10)
 10. Los totales del pedido multiplican por la **cantidad**.
 
-Todos estos parámetros (precios de material, electricidad, mano de obra, margen, comisión, tasa de fallos, redondeo) se ajustan desde el panel de Configuración, sin tocar el código.
+Todos estos parámetros se ajustan desde el panel **⚙ Configuración de costos** dentro de la app, y quedan guardados en la base de datos para la próxima vez que la abras (o para cualquier otra persona que la use).
 
-## Versión estática (HTML/CSS/JS)
+## Estructura
 
-No requiere backend ni build. La configuración y el historial se guardan en `localStorage` del navegador.
-
-Uso local:
-```bash
-python -m http.server 8000
 ```
-y visita `http://localhost:8000`.
+streamlit_app.py           interfaz y lógica de cálculo
+db.py                       esquema y acceso a la base de datos (SQLAlchemy)
+requirements.txt            dependencias
+.streamlit/secrets.toml.example   formato del secreto de conexión a la base de datos
+```
 
-### Publicar en GitHub Pages
-En GitHub → **Settings → Pages** → rama `main` → carpeta `/ (root)`. Queda disponible en `https://hdaniel-espinosa.github.io/calculadora-3d/`.
+## Base de datos
 
-Alternativa: arrastrar la carpeta a [Netlify Drop](https://app.netlify.com/drop).
+Se usan tres tablas, creadas automáticamente por la app la primera vez que corre (`db.get_connection()` llama a `metadata.create_all`, no hay que ejecutar SQL a mano):
 
-## Versión Streamlit (Python)
+- `configuracion` — una sola fila con los parámetros generales (peso de rollo, costo eléctrico, mano de obra, margen, comisión, tasa de fallos, redondeo, etc.)
+- `materiales` — nombre y precio por rollo de cada material.
+- `cotizaciones` — historial de cotizaciones guardadas (fecha, modelo, material, cliente, cantidad, costo, venta, ganancia).
 
-Misma lógica de cálculo, reescrita en `streamlit_app.py`. La configuración y el historial viven en la sesión del navegador (`st.session_state`) — se reinician si recargas la página o si la app se "duerme" por inactividad.
+### Configurar la base de datos (Supabase, gratis)
 
-Uso local:
+1. Crea una cuenta/proyecto en https://supabase.com (puedes entrar con tu cuenta de GitHub).
+2. En el proyecto: **Project Settings → Database → Connection string → URI** — copia la cadena de conexión (modo "Session pooler" recomendado para apps serverless).
+3. En Streamlit Cloud: tu app → **⋮ → Settings → Secrets**, y pega:
+   ```toml
+   [connections.db]
+   url = "postgresql://postgres:<tu-password>@<host>:5432/postgres"
+   ```
+4. Guarda. La app se reinicia sola y crea las tablas automáticamente en el primer request.
+
+Para correr localmente, copia `.streamlit/secrets.toml.example` a `.streamlit/secrets.toml` y complétalo con tus datos (ese archivo está en `.gitignore`, nunca se sube al repositorio).
+
+## Uso local
+
 ```bash
 pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-### Publicar en Streamlit Community Cloud
-1. Entra a **https://share.streamlit.io** e inicia sesión con tu cuenta de GitHub (la misma dueña de este repo).
-2. Clic en **"New app"** (o **"Create app"**).
-3. Selecciona el repositorio `hdaniel-espinosa/calculadora-3d`, rama `main`, archivo principal `streamlit_app.py`.
-4. Clic en **Deploy**. En 1-2 minutos queda publicada en una URL tipo `https://calculadora-3d-<algo>.streamlit.app`.
+## Despliegue
 
-Este último paso requiere iniciar sesión con tu cuenta, así que no se puede automatizar de este lado — el resto del trabajo (código, repo, requirements.txt) ya está listo para que solo falten esos clics.
-
-## Estructura
-
-```
-index.html         sitio estático: estructura de la página
-style.css           sitio estático: estilos
-app.js              sitio estático: lógica de cálculo, configuración e historial
-streamlit_app.py    app Streamlit equivalente en Python
-requirements.txt    dependencias de la app Streamlit
-```
-
-## Excel
-
-`excel/Cotizador_Impresion_3D_Bambu_A1_v2.xlsx` es la versión mejorada de la hoja de cálculo original: agrega totales por cantidad, selección de plataforma funcional, tabla de materiales ampliable, tasa de fallos, redondeo de precio y formato profesional.
+La app ya está conectada a Streamlit Community Cloud: cada `git push` a `main` la vuelve a desplegar automáticamente en 1-2 minutos. Si la app no se usa por un tiempo, Streamlit la "duerme"; el primer visitante después de eso espera unos segundos mientras despierta — es normal.
 
 ## Notas
 
-- Las dos versiones implementan la misma fórmula por separado (una en JavaScript, otra en Python). Si cambias la lógica de costeo, actualiza ambas.
-- Ninguna de las dos versiones tiene base de datos: el historial vive solo en el navegador/sesión de quien la usa, no se comparte entre dispositivos ni usuarios.
+- El plan gratuito de Supabase pausa el proyecto tras ~1 semana sin actividad; basta con abrir el dashboard de Supabase para reactivarlo si eso llega a pasar.
+- Todas las personas que usan la app comparten la misma configuración e historial (no hay usuarios ni sesiones separadas). Si necesitas historiales por persona o por negocio, habría que agregar autenticación — no incluido en esta versión.
