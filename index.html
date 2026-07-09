@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cotizador de Impresión 3D</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>🖨️ Cotizador de Impresión 3D</h1>
+  <div class="topbar-actions">
+    <button id="btnConfig" class="btn btn-ghost">⚙ Configuración</button>
+    <button id="btnHistorial" class="btn btn-ghost">📋 Historial</button>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- FORM -->
+  <section class="panel">
+    <h2>Datos de la pieza</h2>
+    <form id="quoteForm">
+      <label>Nombre del modelo
+        <input type="text" id="nombreModelo" placeholder="Ej. Soporte para celular">
+      </label>
+
+      <label>Material
+        <select id="material"></select>
+      </label>
+
+      <div class="grid-2">
+        <label>Peso pieza (g)
+          <input type="number" id="pesoPieza" min="0" step="0.1" value="50" required>
+        </label>
+        <label>Purga AMS (g)
+          <input type="number" id="purgaAMS" min="0" step="0.1" value="5" required>
+        </label>
+      </div>
+
+      <div class="grid-2">
+        <label>Horas de impresión
+          <input type="number" id="horas" min="0" step="0.1" value="3" required>
+        </label>
+        <label>Minutos de postproceso
+          <input type="number" id="minPostproceso" min="0" step="1" value="10" required>
+        </label>
+      </div>
+
+      <div class="grid-2">
+        <label>Cantidad
+          <input type="number" id="cantidad" min="1" step="1" value="1" required>
+        </label>
+        <label>Plataforma de venta
+          <select id="plataforma">
+            <option value="directa">Venta directa</option>
+            <option value="ml">Mercado Libre</option>
+          </select>
+        </label>
+      </div>
+
+      <label>Cliente (opcional)
+        <input type="text" id="cliente" placeholder="Ej. Juan Pérez">
+      </label>
+    </form>
+  </section>
+
+  <!-- RESULTS -->
+  <section class="panel">
+    <h2>Desglose de costos</h2>
+    <table class="breakdown">
+      <tbody id="breakdownBody"></tbody>
+    </table>
+
+    <div class="result-box">
+      <div class="result-row">
+        <span>Precio final unitario</span>
+        <strong id="precioFinalUnitario">$0.00</strong>
+      </div>
+      <div class="result-row">
+        <span>Precio total del pedido</span>
+        <strong id="precioTotalPedido">$0.00</strong>
+      </div>
+      <div class="result-row muted">
+        <span>Ganancia total estimada</span>
+        <span id="gananciaTotal">$0.00</span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="btnGenerar" class="btn btn-primary">Generar cotización</button>
+      <button id="btnCopiar" class="btn btn-secondary">Copiar texto</button>
+      <button id="btnWhatsapp" class="btn btn-secondary">Enviar por WhatsApp</button>
+      <button id="btnImprimir" class="btn btn-secondary">Imprimir / PDF</button>
+      <button id="btnGuardar" class="btn btn-secondary">Guardar en historial</button>
+    </div>
+
+    <pre id="quoteText" class="quote-text" hidden></pre>
+  </section>
+</main>
+
+<!-- CONFIG MODAL -->
+<div id="configModal" class="modal" hidden>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>Configuración de costos</h2>
+      <button class="btn-close" data-close="configModal">✕</button>
+    </div>
+
+    <h3>Materiales (precio por rollo de 1 kg)</h3>
+    <table class="config-table">
+      <thead><tr><th>Material</th><th>Precio rollo ($)</th><th></th></tr></thead>
+      <tbody id="materialsBody"></tbody>
+    </table>
+    <button id="btnAddMaterial" class="btn btn-ghost small">+ Agregar material</button>
+
+    <h3>Parámetros generales</h3>
+    <div class="config-grid">
+      <label>Peso del rollo (g)
+        <input type="number" id="cfgPesoRollo" min="1" step="1">
+      </label>
+      <label>Costo electricidad ($/kWh)
+        <input type="number" id="cfgCostoElectricidad" min="0" step="0.01">
+      </label>
+      <label>Consumo promedio A1 (kW)
+        <input type="number" id="cfgConsumo" min="0" step="0.01">
+      </label>
+      <label>Desgaste impresora por hora ($)
+        <input type="number" id="cfgDesgaste" min="0" step="0.1">
+      </label>
+      <label>Mano de obra por hora ($)
+        <input type="number" id="cfgManoObra" min="0" step="1">
+      </label>
+      <label>Empaque básico ($)
+        <input type="number" id="cfgEmpaque" min="0" step="0.1">
+      </label>
+      <label>Tasa de fallos / desperdicio (%)
+        <input type="number" id="cfgFallos" min="0" max="100" step="0.1">
+      </label>
+      <label>Margen de ganancia (%)
+        <input type="number" id="cfgMargen" min="0" step="0.1">
+      </label>
+      <label>Comisión Mercado Libre (%)
+        <input type="number" id="cfgComisionML" min="0" max="100" step="0.1">
+      </label>
+      <label>Redondeo de precio final (múltiplo de $)
+        <input type="number" id="cfgRedondeo" min="0" step="1">
+      </label>
+    </div>
+
+    <div class="modal-actions">
+      <button id="btnResetConfig" class="btn btn-ghost">Restaurar valores por defecto</button>
+      <button id="btnSaveConfig" class="btn btn-primary">Guardar configuración</button>
+    </div>
+  </div>
+</div>
+
+<!-- HISTORIAL MODAL -->
+<div id="historialModal" class="modal" hidden>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>Historial de cotizaciones</h2>
+      <button class="btn-close" data-close="historialModal">✕</button>
+    </div>
+    <div class="table-wrap">
+      <table class="config-table">
+        <thead>
+          <tr><th>Fecha</th><th>Modelo</th><th>Cliente</th><th>Cant.</th><th>Costo</th><th>Venta</th><th>Ganancia</th><th></th></tr>
+        </thead>
+        <tbody id="historialBody"></tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button id="btnClearHistorial" class="btn btn-ghost">Borrar historial</button>
+      <button id="btnExportHistorial" class="btn btn-secondary">Exportar CSV</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
