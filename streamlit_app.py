@@ -188,13 +188,17 @@ with col_form:
         archivo_laminado = st.file_uploader(
             "Archivo laminado", type=["gcode", "3mf"], label_visibility="collapsed"
         )
-        if archivo_laminado is not None:
+        if archivo_laminado is None:
+            st.session_state["_placas_actual"] = None
+        else:
             try:
                 placas = parse_bambu_file(archivo_laminado)
                 error_archivo = None
             except Exception as e:
                 placas = []
                 error_archivo = str(e)
+
+            st.session_state["_placas_actual"] = placas if not error_archivo else None
 
             if error_archivo:
                 st.warning(f"No se pudo leer el archivo: {error_archivo}")
@@ -354,6 +358,56 @@ with col_result:
             )
             st.success("Cotización guardada en la base de datos.")
             st.rerun()
+
+placas_actuales = st.session_state.get("_placas_actual")
+if placas_actuales and len(placas_actuales) > 1:
+    st.divider()
+    st.subheader("🗂️ Resumen de todas las placas del archivo")
+    st.caption(
+        "Precio estimado por placa con el material y la plataforma elegidos arriba. No incluye "
+        "purga AMS extra ni tiempo de postprocesado (esos se ajustan al elegir una placa para cargarla "
+        "al formulario, arriba)."
+    )
+
+    filas_resumen = []
+    total_peso = 0.0
+    total_horas = 0.0
+    total_precio = 0.0
+    for i, p in enumerate(placas_actuales):
+        peso_p = p.get("peso_total_g", 0.0)
+        horas_p = p.get("horas", 0.0)
+        inp_p = {
+            "material": material,
+            "peso_pieza": peso_p,
+            "purga_ams": p.get("purga_g", 0.0),
+            "horas": horas_p,
+            "min_postproceso": 0,
+            "cantidad": 1,
+            "plataforma": plataforma,
+        }
+        r_p = calcular(inp_p, cfg, materiales)
+        h_p = int(horas_p)
+        m_p = round((horas_p - h_p) * 60)
+        filas_resumen.append(
+            {
+                "Placa": p.get("index", i + 1),
+                "Material (g)": round(peso_p, 2),
+                "Tiempo": f"{h_p}h {m_p}min",
+                "Precio unitario": money(r_p["precio_redondeado"]),
+            }
+        )
+        total_peso += peso_p
+        total_horas += horas_p
+        total_precio += r_p["precio_redondeado"]
+
+    st.dataframe(pd.DataFrame(filas_resumen), hide_index=True, use_container_width=True)
+
+    th = int(total_horas)
+    tm = round((total_horas - th) * 60)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Material total", f"{total_peso:.2f} g")
+    c2.metric("Tiempo total", f"{th}h {tm}min")
+    c3.metric("Precio total (todas las placas)", money(total_precio))
 
 st.divider()
 st.subheader("📋 Historial de cotizaciones")
