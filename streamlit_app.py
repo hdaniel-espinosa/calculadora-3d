@@ -270,6 +270,25 @@ with col_form:
         )
 
     st.caption("Tiempo de impresión")
+    decimal_horas_impresion = st.number_input(
+        "¿Tienes el tiempo en decimal? (ej. MakerWorld: \"3.8 hrs\")",
+        min_value=0.0,
+        step=0.1,
+        value=0.0,
+        key="horas_decimales_input",
+        help='Escribe el valor tal como lo muestra MakerWorld u otra fuente (ej. 3.8) y se convierte solo a horas y minutos abajo. Déjalo en 0 si prefieres llenar Horas/Minutos directamente.',
+    )
+    if decimal_horas_impresion and st.session_state.get("_ultimo_decimal_aplicado") != decimal_horas_impresion:
+        h_dec = int(decimal_horas_impresion)
+        m_dec = round((decimal_horas_impresion - h_dec) * 60)
+        if m_dec == 60:
+            h_dec += 1
+            m_dec = 0
+        st.session_state["horas_impresion"] = h_dec
+        st.session_state["minutos_impresion"] = m_dec
+        st.session_state["_ultimo_decimal_aplicado"] = decimal_horas_impresion
+        st.rerun()
+
     c1, c2 = st.columns(2)
     with c1:
         horas_impresion = st.number_input("Horas", min_value=0, step=1, key="horas_impresion")
