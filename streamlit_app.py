@@ -17,9 +17,10 @@ except Exception as e:
         "**No se pudo conectar a la base de datos.**\n\n"
         "Configura el secreto de conexión en Streamlit Cloud "
         "(⋮ → Settings → Secrets) con el siguiente formato:\n\n"
-        '```toml\n[connections.db]\nurl = "postgresql://usuario:password@host:5432/postgres"\n```\n\n'
+        '```toml\n[connections.db]\nurl = "postgresql+psycopg://usuario:password@host:5432/postgres"\n```\n\n'
         "Usa la cadena de conexión de tu proyecto de Supabase "
-        "(Project Settings → Database → Connection string → URI)."
+        "(Project Settings → Database → Connection string → URI), agregando `+psycopg` "
+        "después de `postgresql` como se muestra arriba."
     )
     st.caption(f"Detalle técnico: {e}")
     st.stop()

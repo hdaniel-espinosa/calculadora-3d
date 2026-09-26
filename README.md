@@ -41,12 +41,14 @@ Se usan tres tablas, creadas automáticamente por la app la primera vez que corr
 
 1. Crea una cuenta/proyecto en https://supabase.com (puedes entrar con tu cuenta de GitHub).
 2. En el proyecto: **Project Settings → Database → Connection string → URI** — copia la cadena de conexión (modo "Session pooler" recomendado para apps serverless).
-3. En Streamlit Cloud: tu app → **⋮ → Settings → Secrets**, y pega:
+3. En Streamlit Cloud: tu app → **⋮ → Settings → Secrets**, y pega (nota el `+psycopg` después de `postgresql`, usamos el driver psycopg v3):
    ```toml
    [connections.db]
-   url = "postgresql://postgres:<tu-password>@<host>:5432/postgres"
+   url = "postgresql+psycopg://postgres:<tu-password>@<host>:5432/postgres"
    ```
 4. Guarda. La app se reinicia sola y crea las tablas automáticamente en el primer request.
+
+> Si ya tenías configurado el secreto con `postgresql://` (sin `+psycopg`) y la app muestra el error `No module named 'psycopg2'`, es por esto: Streamlit Cloud pasó a Python 3.14 y el driver anterior (`psycopg2-binary`) todavía no tiene wheels estables para esa versión. Edita el secreto para agregar `+psycopg` justo después de `postgresql` (todo lo demás igual) y guarda de nuevo.
 
 Para correr localmente, copia `.streamlit/secrets.toml.example` a `.streamlit/secrets.toml` y complétalo con tus datos (ese archivo está en `.gitignore`, nunca se sube al repositorio).
 
